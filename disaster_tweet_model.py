@@ -16,6 +16,7 @@ from model_config import LABELS
 
 
 def set_seed(seed: int) -> None:
+    # Set all random generators used in this project for more repeatable runs.
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -77,6 +78,7 @@ def sample_datasets(bundle: DatasetBundle, fraction: float, seed: int) -> Datase
 def load_lexicon(path: Path) -> CrisisLexicon:
     with path.open(encoding="utf-8") as f:
         terms = [line.strip().lower() for line in f if line.strip()]
+    # Separating phrases from single words avoids tokenizing multi-word lexicon entries.
     unigram_terms = {term for term in terms if " " not in term}
     phrase_terms = [term for term in terms if " " in term]
     return CrisisLexicon(terms=terms, unigram_terms=unigram_terms, phrase_terms=phrase_terms)
@@ -91,6 +93,7 @@ def extract_lexicon_features(text: str, lexicon: CrisisLexicon) -> List[float]:
     matched_phrases = [term for term in lexicon.phrase_terms if term in lowered]
     unique_terms = matched_unigrams | set(matched_phrases)
 
+    # Features: unigram hits, phrase hits, unique hits, normalized hit ratio, and any-hit flag.
     return [
         float(len(matched_unigrams)),
         float(len(matched_phrases)),
@@ -112,6 +115,7 @@ class TweetDataset(Dataset):
         self.frame = frame.reset_index(drop=True)
         self.label_to_id = label_to_id
         texts = self.frame["text"].tolist()
+        # Tokenization is done once during dataset construction to avoid repeated work per batch.
         self.encodings = tokenizer(
             texts,
             truncation=True,
@@ -138,6 +142,7 @@ class LexiconFeatureCollator:
         self.tokenizer = tokenizer
 
     def __call__(self, features):
+        # Let the tokenizer pad text tensors, then add labels and lexicon features manually.
         text_features = [
             {k: v for k, v in feature.items() if k not in {"labels", "lexicon_features"}}
             for feature in features
@@ -176,6 +181,7 @@ class BertWithLexiconFeatures(nn.Module):
         self.classifier = nn.Linear(config.hidden_size + feature_dim, num_labels)
         self.loss_type = loss_type
         self.label_smoothing = label_smoothing
+        # Buffers move but are not trainable parameters.
         if class_weights is not None:
             self.register_buffer("class_weights", class_weights.clone().detach().float())
         else:
@@ -189,15 +195,20 @@ class BertWithLexiconFeatures(nn.Module):
             token_type_ids=token_type_ids,
             **kwargs,
         )
+        # Use BERT pooled sentence representation when it is available.
         pooled_output = outputs.pooler_output
         if pooled_output is None:
+            # Some encoder models do not expose pooler_output, so fall back to the first token.
             pooled_output = outputs.last_hidden_state[:, 0]
+        # Apply dropout before classification to reduce overfitting.
         pooled_output = self.dropout(pooled_output)
+        # Concatenate transformer representation with handcrafted CrisisLex features.
         combined = torch.cat([pooled_output, lexicon_features], dim=-1)
         logits = self.classifier(combined)
 
         loss = None
         if labels is not None:
+            # The same model supports plain, weighted, smoothed, and weighted-smoothed losses.
             use_weighted_loss = self.loss_type in {"weighted_cross_entropy", "weighted_label_smoothing"}
             use_label_smoothing = self.loss_type in {"label_smoothing", "weighted_label_smoothing"}
             loss_fct = nn.CrossEntropyLoss(

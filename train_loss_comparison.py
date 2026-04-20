@@ -64,6 +64,7 @@ def build_prediction_frame(predictions: np.ndarray, frame: pd.DataFrame, id_to_l
 
 
 def save_metrics(output_dir: Path, split_name: str, true_labels: List[str], pred_labels: List[str]) -> None:
+    # Save both summary metrics and per-class details for later report tables.
     label_report = classification_report(
         true_labels,
         pred_labels,
@@ -104,6 +105,7 @@ def write_predictions_csv(path: Path, frame: pd.DataFrame) -> None:
 
 def compute_class_weights(train_frame: pd.DataFrame, label_to_id: Dict[str, int]) -> torch.Tensor:
     counts = train_frame["label"].value_counts()
+    # Inverse-frequency weighting gives rare classes a larger loss contribution.
     weights = torch.tensor(
         [1.0 / counts[label] for label in label_to_id],
         dtype=torch.float,
@@ -146,6 +148,7 @@ def parse_args() -> argparse.Namespace:
 
 def build_training_args(args: argparse.Namespace, output_dir: Path) -> TrainingArguments:
     use_mps = torch.backends.mps.is_available()
+    # Pin memory is useful for CUDA but can cause issues or no benefit on Apple MPS.
     return TrainingArguments(
         output_dir=str(output_dir / "checkpoints"),
         overwrite_output_dir=True,
@@ -214,6 +217,7 @@ def run_experiment(
     feature_dim = len(extract_lexicon_features("", lexicon))
     class_weights = None
     if loss_type in {"weighted_cross_entropy", "weighted_label_smoothing"}:
+        # Weighted loss modes compute class weights from the current training split.
         class_weights = compute_class_weights(data.train, label_to_id)
 
     model = BertWithLexiconFeatures(
@@ -249,6 +253,7 @@ def run_experiment(
     tokenizer.save_pretrained(str(output_dir / "best_model"))
 
     with (output_dir / "experiment_config.json").open("w", encoding="utf-8") as f:
+        # Store the experiment setup next to the metrics and predictions.
         json.dump(
             {
                 "experiment_name": experiment_name,
@@ -294,6 +299,7 @@ def main() -> None:
     ]
 
     for experiment_name, output_dir, loss_type in experiments:
+        # Skip experiments that are not selected by --run-mode.
         if args.run_mode not in {"all", loss_type}:
             continue
         run_experiment(

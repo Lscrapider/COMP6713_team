@@ -1,6 +1,7 @@
 from pathlib import Path
 
 
+# Keep label order stable because it defines the class id order used by the model.
 LABELS = [
     "caution_and_advice",
     "displaced_people_and_evacuations",
@@ -13,6 +14,7 @@ LABELS = [
     "sympathy_and_emotional_support",
 ]
 
+# Shared defaults used by the training script and model setup.
 DEFAULT_DATA_DIR = Path("data")
 DEFAULT_LEXICON_PATH = DEFAULT_DATA_DIR / "CrisisLexLexicon" / "CrisisLexRec.txt"
 DEFAULT_MODEL_NAME = "bert-base-uncased"
@@ -24,6 +26,7 @@ DEFAULT_EXTENSION_OUTPUT_DIR = Path("outputs/bert_weighted_label_smoothing")
 
 
 def build_label_mappings():
+    # Hugging Face configs expect both directions for label names and numeric ids.
     label_to_id = {label: idx for idx, label in enumerate(LABELS)}
     id_to_label = {idx: label for label, idx in label_to_id.items()}
     return label_to_id, id_to_label
