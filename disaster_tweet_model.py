@@ -2,7 +2,7 @@ import random
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -110,23 +110,26 @@ class TweetDataset(Dataset):
         lexicon: CrisisLexicon,
     ):
         self.frame = frame.reset_index(drop=True)
-        self.tokenizer = tokenizer
         self.label_to_id = label_to_id
-        self.max_length = max_length
-        self.lexicon = lexicon
+        texts = self.frame["text"].tolist()
+        self.encodings = tokenizer(
+            texts,
+            truncation=True,
+            max_length=max_length,
+        )
+        self.labels = [self.label_to_id[label] for label in self.frame["label"].tolist()]
+        self.lexicon_features = [
+            extract_lexicon_features(text, lexicon)
+            for text in texts
+        ]
 
     def __len__(self) -> int:
         return len(self.frame)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        row = self.frame.iloc[idx]
-        encoding = self.tokenizer(
-            row["text"],
-            truncation=True,
-            max_length=self.max_length,
-        )
-        encoding["labels"] = self.label_to_id[row["label"]]
-        encoding["lexicon_features"] = extract_lexicon_features(row["text"], self.lexicon)
+        encoding = {key: value[idx] for key, value in self.encodings.items()}
+        encoding["labels"] = self.labels[idx]
+        encoding["lexicon_features"] = self.lexicon_features[idx]
         return encoding
 
 
@@ -149,7 +152,17 @@ class LexiconFeatureCollator:
 
 
 class BertWithLexiconFeatures(nn.Module):
-    def __init__(self, model_name: str, num_labels: int, label_to_id: Dict[str, int], id_to_label: Dict[int, str], feature_dim: int):
+    def __init__(
+        self,
+        model_name: str,
+        num_labels: int,
+        label_to_id: Dict[str, int],
+        id_to_label: Dict[int, str],
+        feature_dim: int,
+        loss_type: str = "cross_entropy",
+        class_weights: Optional[torch.Tensor] = None,
+        label_smoothing: float = 0.0,
+    ):
         super().__init__()
         config = AutoConfig.from_pretrained(
             model_name,
@@ -161,6 +174,12 @@ class BertWithLexiconFeatures(nn.Module):
         self.encoder = AutoModel.from_pretrained(model_name, config=config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size + feature_dim, num_labels)
+        self.loss_type = loss_type
+        self.label_smoothing = label_smoothing
+        if class_weights is not None:
+            self.register_buffer("class_weights", class_weights.clone().detach().float())
+        else:
+            self.class_weights = None
 
     def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, labels=None, lexicon_features=None, **kwargs):
         kwargs.pop("num_items_in_batch", None)
@@ -179,7 +198,12 @@ class BertWithLexiconFeatures(nn.Module):
 
         loss = None
         if labels is not None:
-            loss_fct = nn.CrossEntropyLoss()
+            use_weighted_loss = self.loss_type in {"weighted_cross_entropy", "weighted_label_smoothing"}
+            use_label_smoothing = self.loss_type in {"label_smoothing", "weighted_label_smoothing"}
+            loss_fct = nn.CrossEntropyLoss(
+                weight=self.class_weights if use_weighted_loss else None,
+                label_smoothing=self.label_smoothing if use_label_smoothing else 0.0,
+            )
             loss = loss_fct(logits.view(-1, self.config.num_labels), labels.view(-1))
 
         return SequenceClassifierOutput(

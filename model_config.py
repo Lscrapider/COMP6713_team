@@ -17,11 +17,10 @@ DEFAULT_DATA_DIR = Path("data")
 DEFAULT_LEXICON_PATH = DEFAULT_DATA_DIR / "CrisisLexLexicon" / "CrisisLexRec.txt"
 DEFAULT_MODEL_NAME = "bert-base-uncased"
 DEFAULT_MAX_LENGTH = 128
-DEFAULT_OUTPUT_DIR = Path("outputs/bert_finetuned")
-DEFAULT_BEST_MODEL_DIR = DEFAULT_OUTPUT_DIR / "best_model"
-DEFAULT_TEST_INPUT_CSV = DEFAULT_DATA_DIR / "test.csv"
-DEFAULT_TEST_PREDICTIONS_CSV = DEFAULT_OUTPUT_DIR / "test_predictions.csv"
-DEFAULT_TEST_METRICS_JSON = DEFAULT_OUTPUT_DIR / "test_inference_metrics.json"
+DEFAULT_BASELINE_OUTPUT_DIR = Path("outputs/bert_cross_entropy")
+DEFAULT_WEIGHTED_OUTPUT_DIR = Path("outputs/bert_weighted_cross_entropy")
+DEFAULT_LABEL_SMOOTHING_OUTPUT_DIR = Path("outputs/bert_label_smoothing")
+DEFAULT_EXTENSION_OUTPUT_DIR = Path("outputs/bert_weighted_label_smoothing")
 
 
 def build_label_mappings():
